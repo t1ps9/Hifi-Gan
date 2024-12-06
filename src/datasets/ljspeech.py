@@ -22,6 +22,7 @@ class LJSpeechDataset(BaseDataset):
         self.data_dir = data_dir
         self.index = self._load_or_create_index()
         self.wav_max_len = wav_max_len
+        self.mel_spectrogram = MelSpectrogram(MelSpectrogramConfig())
 
         super().__init__(self.index, *args, **kwargs)
 
