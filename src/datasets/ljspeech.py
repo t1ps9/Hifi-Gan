@@ -15,7 +15,7 @@ URL_LINK = "https://data.keithito.com/data/speech/LJSpeech-1.1.tar.bz2"
 
 
 class LJSpeechDataset(BaseDataset):
-    def __init__(self, data_dir=None, wav_max_len=None, *args, **kwargs):
+    def __init__(self, data_dir=None, wav_max_len=None, device="cuda", *args, **kwargs):
         if data_dir is None:
             data_dir = Path("data/datasets/ljspeech")
             data_dir.mkdir(exist_ok=True, parents=True)
