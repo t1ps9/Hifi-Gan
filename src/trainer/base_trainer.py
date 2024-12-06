@@ -487,8 +487,10 @@ class BaseTrainer:
             "arch": arch,
             "epoch": epoch,
             "state_dict": self.model.state_dict(),
-            "optimizer": self.optimizer.state_dict(),
-            "lr_scheduler": self.lr_scheduler.state_dict(),
+            "optimizer_disc": self.optimizer_disc.state_dict(),
+            "optimizer_gen": self.optimizer_gen.state_dict(),
+            "lr_scheduler_disc": self.lr_scheduler_disc.state_dict() if self.lr_scheduler_disc else None,
+            "lr_scheduler_gen": self.lr_scheduler_gen.state_dict() if self.lr_scheduler_gen else None,
             "monitor_best": self.mnt_best,
             "config": self.config,
         }

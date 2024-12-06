@@ -27,9 +27,9 @@ loss_function:
   mel_lambda: 45
 
 trainer:
-  log_step: 50
+  log_step: 100
   n_epochs: 200
-  epoch_len: 300
+  epoch_len: 1000
   device_tensors: ["waveform", "mel_spec"] # which tensors should be on device (ex. GPU)
   resume_from: null # null or path to the checkpoint dir with *.pth and config.yaml
   device: auto # device name or "auto"
