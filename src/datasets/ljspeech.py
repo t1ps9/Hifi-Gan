@@ -9,6 +9,7 @@ import json
 from src.datasets.melspectogram import MelSpectrogram, MelSpectrogramConfig
 import wget
 import random
+import torch
 
 URL_LINK = "https://data.keithito.com/data/speech/LJSpeech-1.1.tar.bz2"
 
@@ -21,7 +22,8 @@ class LJSpeechDataset(BaseDataset):
         self.data_dir = data_dir
         self.index = self._load_or_create_index()
         self.wav_max_len = wav_max_len
-        self.mel_spectrogram = MelSpectrogram(MelSpectrogramConfig())
+        self.device = torch.device(device)
+        self.mel_spectrogram = MelSpectrogram(MelSpectrogramConfig()).to(self.device)
 
         super().__init__(self.index, *args, **kwargs)
 
