@@ -1,1 +1,5 @@
-from src.loss.ctc_loss import CTCLossWrapper
+from src.loss.all_losses import HiFiGANLoss
+
+__all__ = [
+    "HiFiGANLoss"
+]

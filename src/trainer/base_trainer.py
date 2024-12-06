@@ -20,9 +20,10 @@ class BaseTrainer:
         model,
         criterion,
         metrics,
-        optimizer,
-        lr_scheduler,
-        text_encoder,
+        optimizer_disc,
+        optimizer_gen,
+        lr_scheduler_disc,
+        lr_scheduler_gen,
         config,
         device,
         dataloaders,
@@ -70,9 +71,10 @@ class BaseTrainer:
 
         self.model = model
         self.criterion = criterion
-        self.optimizer = optimizer
-        self.lr_scheduler = lr_scheduler
-        self.text_encoder = text_encoder
+        self.optimizer_disc = optimizer_disc
+        self.optimizer_gen = optimizer_gen
+        self.lr_scheduler_disc = lr_scheduler_disc
+        self.lr_scheduler_gen = lr_scheduler_gen
         self.batch_transforms = batch_transforms
 
         # define dataloaders
@@ -123,15 +125,16 @@ class BaseTrainer:
         self.train_metrics = MetricTracker(
             *self.config.writer.loss_names,
             "grad_norm",
-            *[m.name for m in self.metrics["train"]],
+            "disc_grad_norm",
+            "gen_grad_norm",
             writer=self.writer,
         )
-        self.evaluation_metrics = MetricTracker(
-            *self.config.writer.loss_names,
-            *[m.name for m in self.metrics["inference"]],
-            writer=self.writer,
-        )
-
+        # self.evaluation_metrics = MetricTracker(
+        #     *self.config.writer.loss_names,
+        #     *[m.name for m in self.metrics["inference"]],
+        #     writer=self.writer,
+        # )
+        self.evaluation_metrics = None
         # define checkpoint dir and init everything if required
 
         self.checkpoint_dir = (
@@ -228,11 +231,11 @@ class BaseTrainer:
                 self.writer.set_step((epoch - 1) * self.epoch_len + batch_idx)
                 self.logger.debug(
                     "Train Epoch: {} {} Loss: {:.6f}".format(
-                        epoch, self._progress(batch_idx), batch["loss"].item()
+                        epoch, self._progress(batch_idx), batch["gen_loss"].item()
                     )
                 )
                 self.writer.add_scalar(
-                    "learning rate", self.lr_scheduler.get_last_lr()[0]
+                    "learning rate", self.lr_scheduler_gen.get_last_lr()[0]
                 )
                 self._log_scalars(self.train_metrics)
                 self._log_batch(batch_idx, batch)
@@ -246,9 +249,9 @@ class BaseTrainer:
         logs = last_train_metrics
 
         # Run val/test
-        for part, dataloader in self.evaluation_dataloaders.items():
-            val_logs = self._evaluation_epoch(epoch, part, dataloader)
-            logs.update(**{f"{part}_{name}": value for name, value in val_logs.items()})
+        # for part, dataloader in self.evaluation_dataloaders.items():
+        #     val_logs = self._evaluation_epoch(epoch, part, dataloader)
+        #     logs.update(**{f"{part}_{name}": value for name, value in val_logs.items()})
 
         return logs
 
@@ -265,7 +268,8 @@ class BaseTrainer:
         """
         self.is_train = False
         self.model.eval()
-        self.evaluation_metrics.reset()
+        if self.evaluation_metrics is not None:
+            self.evaluation_metrics.reset()
         with torch.no_grad():
             for batch_idx, batch in tqdm(
                 enumerate(dataloader),
@@ -282,7 +286,7 @@ class BaseTrainer:
                 batch_idx, batch, part
             )  # log only the last batch during inference
 
-        return self.evaluation_metrics.result()
+        return self.evaluation_metrics.result() if self.evaluation_metrics is not None else None
 
     def _monitor_performance(self, logs, not_improved_count):
         """
@@ -386,8 +390,18 @@ class BaseTrainer:
                 self.model.parameters(), self.config["trainer"]["max_grad_norm"]
             )
 
+    def _clip_grad_norm_block(self, block=None):
+        """
+        Clips the gradient norm by the value defined in
+        config.trainer.max_grad_norm
+        """
+        if self.config["trainer"].get("max_grad_norm", None) is not None:
+            clip_grad_norm_(
+                block.parameters(), self.config["trainer"]["max_grad_norm"]
+            )
+
     @torch.no_grad()
-    def _get_grad_norm(self, norm_type=2):
+    def _get_grad_norm(self, parameters=None, norm_type=2):
         """
         Calculates the gradient norm for logging.
 
@@ -396,10 +410,13 @@ class BaseTrainer:
         Returns:
             total_norm (float): the calculated norm.
         """
-        parameters = self.model.parameters()
         if isinstance(parameters, torch.Tensor):
             parameters = [parameters]
+        else:
+            parameters = self.model.parameters()
         parameters = [p for p in parameters if p.grad is not None]
+        if len(parameters) == 0:
+            return 0.0
         total_norm = torch.norm(
             torch.stack([torch.norm(p.grad.detach(), norm_type) for p in parameters]),
             norm_type,

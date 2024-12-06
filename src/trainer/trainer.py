@@ -4,8 +4,11 @@ import pandas as pd
 
 from src.logger.utils import plot_spectrogram
 from src.metrics.tracker import MetricTracker
-from src.metrics.utils import calc_cer, calc_wer
 from src.trainer.base_trainer import BaseTrainer
+from itertools import chain
+from src.datasets.melspectogram import MelSpectrogram, MelSpectrogramConfig
+import torch
+import itertools
 
 
 class Trainer(BaseTrainer):
@@ -14,51 +17,65 @@ class Trainer(BaseTrainer):
     """
 
     def process_batch(self, batch, metrics: MetricTracker):
-        """
-        Run batch through the model, compute metrics, compute loss,
-        and do training step (during training stage).
-
-        The function expects that criterion aggregates all losses
-        (if there are many) into a single one defined in the 'loss' key.
-
-        Args:
-            batch (dict): dict-based batch containing the data from
-                the dataloader.
-            metrics (MetricTracker): MetricTracker object that computes
-                and aggregates the metrics. The metrics depend on the type of
-                the partition (train or inference).
-        Returns:
-            batch (dict): dict-based batch containing the data from
-                the dataloader (possibly transformed via batch transform),
-                model outputs, and losses.
-        """
         batch = self.move_batch_to_device(batch)
-        batch = self.transform_batch(batch)  # transform batch on device -- faster
+        ref_waveform = batch["waveform"]
+        ref_mel = batch["mel_spec"]
 
-        metric_funcs = self.metrics["inference"]
-        if self.is_train:
-            metric_funcs = self.metrics["train"]
-            self.optimizer.zero_grad()
+        with torch.no_grad():
+            gen_waveform = self.model.generator(ref_mel)
+        batch["wav_predict"] = gen_waveform
 
-        outputs = self.model(**batch)
-        batch.update(outputs)
+        mpd_real_out, mpd_real_feats = self.model.mpd(ref_waveform)
+        mpd_fake_out, mpd_fake_feats = self.model.mpd(gen_waveform)
+        msd_real_out, msd_real_feats = self.model.msd(ref_waveform)
+        msd_fake_out, msd_fake_feats = self.model.msd(gen_waveform)
 
-        all_losses = self.criterion(**batch)
-        batch.update(all_losses)
+        disc_loss_dict = self.criterion.disc_loss_func(
+            real_msd_logits=msd_real_out, fake_msd_logits=msd_fake_out,
+            real_mpd_logits=mpd_real_out, fake_mpd_logits=mpd_fake_out
+        )
 
-        if self.is_train:
-            batch["loss"].backward()  # sum of all losses is always called loss
-            self._clip_grad_norm()
-            self.optimizer.step()
-            if self.lr_scheduler is not None:
-                self.lr_scheduler.step()
+        self.optimizer_disc.zero_grad()
+        disc_loss_dict["disc_loss"].backward()
+        self._clip_grad_norm_block(self.model.mpd)
+        self._clip_grad_norm_block(self.model.msd)
+        self.optimizer_disc.step()
+        batch.update(disc_loss_dict)
 
-        # update metrics for each loss (in case of multiple losses)
-        for loss_name in self.config.writer.loss_names:
-            metrics.update(loss_name, batch[loss_name].item())
+        gen_waveform = self.model.generator(ref_mel)
+        batch["wav_predict"] = gen_waveform
 
-        for met in metric_funcs:
-            metrics.update(met.name, met(**batch))
+        mpd_real_out, mpd_real_feats = self.model.mpd(ref_waveform)
+        mpd_fake_out, mpd_fake_feats = self.model.mpd(gen_waveform)
+        msd_real_out, msd_real_feats = self.model.msd(ref_waveform)
+        msd_fake_out, msd_fake_feats = self.model.msd(gen_waveform)
+
+        melspec = MelSpectrogram(MelSpectrogramConfig())
+        predict_mel = melspec(gen_waveform).squeeze(1)
+
+        gen_loss_dict = self.criterion.gen_loss_func(
+            fake_mels=predict_mel,
+            real_mels=ref_mel,
+            fake_msd_logits=msd_fake_out,
+            fake_mpd_logits=mpd_fake_out,
+            real_msd_activations=msd_real_feats,
+            fake_msd_activations=msd_fake_feats,
+            real_mpd_activations=mpd_real_feats,
+            fake_mpd_activations=mpd_fake_feats
+        )
+
+        self.optimizer_gen.zero_grad()
+        gen_loss_dict["gen_loss"].backward()
+        self._clip_grad_norm_block(self.model.generator)
+        self.optimizer_gen.step()
+
+        batch.update(gen_loss_dict)
+
+        for key_name in self.config.writer.loss_names:
+            val = batch.get(key_name)
+            if val is not None and torch.is_tensor(val):
+                metrics.update(key_name, val.item())
+
         return batch
 
     def _log_batch(self, batch_idx, batch, mode="train"):
@@ -78,46 +95,8 @@ class Trainer(BaseTrainer):
 
         # logging scheme might be different for different partitions
         if mode == "train":  # the method is called only every self.log_step steps
-            self.log_spectrogram(**batch)
-        else:
+            pred_wav = batch["wav_predict"][0].cpu()
+            self.writer.add_audio("predict_wav", pred_wav, sample_rate=22050)
+            wav = batch["waveform"][0].cpu()
+            self.writer.add_audio("waveform", wav, sample_rate=22050)
             # Log Stuff
-            self.log_spectrogram(**batch)
-            self.log_predictions(**batch)
-
-    def log_spectrogram(self, spectrogram, **batch):
-        spectrogram_for_plot = spectrogram[0].detach().cpu()
-        image = plot_spectrogram(spectrogram_for_plot)
-        self.writer.add_image("spectrogram", image)
-
-    def log_predictions(
-        self, text, log_probs, log_probs_length, audio_path, examples_to_log=10, **batch
-    ):
-        # TODO add beam search
-        # Note: by improving text encoder and metrics design
-        # this logging can also be improved significantly
-
-        argmax_inds = log_probs.cpu().argmax(-1).numpy()
-        argmax_inds = [
-            inds[: int(ind_len)]
-            for inds, ind_len in zip(argmax_inds, log_probs_length.numpy())
-        ]
-        argmax_texts_raw = [self.text_encoder.decode(inds) for inds in argmax_inds]
-        argmax_texts = [self.text_encoder.ctc_decode(inds) for inds in argmax_inds]
-        tuples = list(zip(argmax_texts, text, argmax_texts_raw, audio_path))
-
-        rows = {}
-        for pred, target, raw_pred, audio_path in tuples[:examples_to_log]:
-            target = self.text_encoder.normalize_text(target)
-            wer = calc_wer(target, pred) * 100
-            cer = calc_cer(target, pred) * 100
-
-            rows[Path(audio_path).name] = {
-                "target": target,
-                "raw prediction": raw_pred,
-                "predictions": pred,
-                "wer": wer,
-                "cer": cer,
-            }
-        self.writer.add_table(
-            "predictions", pd.DataFrame.from_dict(rows, orient="index")
-        )

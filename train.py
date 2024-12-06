@@ -8,7 +8,7 @@ from omegaconf import OmegaConf
 from src.datasets.data_utils import get_dataloaders
 from src.trainer import Trainer
 from src.utils.init_utils import set_random_seed, setup_saving_and_logging
-
+import itertools
 warnings.filterwarnings("ignore", category=UserWarning)
 
 
@@ -33,44 +33,36 @@ def main(config):
     else:
         device = config.trainer.device
 
-    # setup text_encoder
-    text_encoder = instantiate(config.text_encoder)
+    dataloaders, batch_transforms = get_dataloaders(config, device)
 
-    # setup data_loader instances
-    # batch_transforms should be put on device
-    dataloaders, batch_transforms = get_dataloaders(config, text_encoder, device)
-
-    # build model architecture, then print to console
-    model = instantiate(config.model, n_tokens=len(text_encoder)).to(device)
+    model = instantiate(config.model).to(device)
     logger.info(model)
 
-    # get function handles of loss and metrics
     loss_function = instantiate(config.loss_function).to(device)
 
-    metrics = {"train": [], "inference": []}
-    for metric_type in ["train", "inference"]:
-        for metric_config in config.metrics.get(metric_type, []):
-            # use text_encoder in metrics
-            metrics[metric_type].append(
-                instantiate(metric_config, text_encoder=text_encoder)
-            )
+    trainable_params_g = filter(lambda p: p.requires_grad, model.generator.parameters())
+    optimizer_gen = instantiate(config.optimizer_gen, params=trainable_params_g)
+    lr_scheduler_gen = instantiate(config.lr_scheduler_gen, optimizer=optimizer_gen)
 
-    # build optimizer, learning rate scheduler
-    trainable_params = filter(lambda p: p.requires_grad, model.parameters())
-    optimizer = instantiate(config.optimizer, params=trainable_params)
-    lr_scheduler = instantiate(config.lr_scheduler, optimizer=optimizer)
+    trainable_params_d = filter(lambda p: p.requires_grad, itertools.chain(
+        model.mpd.parameters(), model.msd.parameters())
+    )
+    optimizer_disc = instantiate(config.optimizer_disc, params=trainable_params_d)
+    lr_scheduler_disc = instantiate(config.lr_scheduler_disc, optimizer=optimizer_disc)
 
     # epoch_len = number of iterations for iteration-based training
     # epoch_len = None or len(dataloader) for epoch-based training
     epoch_len = config.trainer.get("epoch_len")
+    metrics = instantiate(config.metrics)
 
     trainer = Trainer(
         model=model,
         criterion=loss_function,
         metrics=metrics,
-        optimizer=optimizer,
-        lr_scheduler=lr_scheduler,
-        text_encoder=text_encoder,
+        optimizer_gen=optimizer_gen,
+        optimizer_disc=optimizer_disc,
+        lr_scheduler_gen=lr_scheduler_gen,
+        lr_scheduler_disc=lr_scheduler_disc,
         config=config,
         device=device,
         dataloaders=dataloaders,
