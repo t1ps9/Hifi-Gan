@@ -79,10 +79,6 @@ class LJSpeechDataset(BaseDataset):
         audio_len = waveform.shape[-1]
         start = random.randint(0, max(0, audio_len - 8192))
         waveform = waveform[..., start: start + 8192]
-        waveform = waveform.to(self.device)
-        if self.mel_spectrogram.mel_spectrogram.spectrogram.window.device != waveform.device:
-            self.mel_spectrogram.mel_spectrogram.spectrogram.window = \
-                self.mel_spectrogram.mel_spectrogram.spectrogram.window.to(waveform.device)
 
         mel_spec = self.mel_spectrogram(waveform).squeeze(0)
 
