@@ -15,15 +15,13 @@ URL_LINK = "https://data.keithito.com/data/speech/LJSpeech-1.1.tar.bz2"
 
 
 class LJSpeechDataset(BaseDataset):
-    def __init__(self, data_dir=None, wav_max_len=None, device="cuda:0", *args, **kwargs):
+    def __init__(self, data_dir=None, wav_max_len=None, *args, **kwargs):
         if data_dir is None:
             data_dir = Path("data/datasets/ljspeech")
             data_dir.mkdir(exist_ok=True, parents=True)
         self.data_dir = data_dir
         self.index = self._load_or_create_index()
         self.wav_max_len = wav_max_len
-        self.device = torch.device(device)
-        self.mel_spectrogram = MelSpectrogram(MelSpectrogramConfig()).to(self.device)
 
         super().__init__(self.index, *args, **kwargs)
 
