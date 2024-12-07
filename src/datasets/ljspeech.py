@@ -75,13 +75,17 @@ class LJSpeechDataset(BaseDataset):
         elif waveform.shape[0] > 1:
             waveform = waveform.mean(dim=0, keepdim=True)
 
+        full_waveform = waveform.clone()
         audio_len = waveform.shape[-1]
         start = random.randint(0, max(0, audio_len - 8192))
         waveform = waveform[..., start: start + 8192]
 
         mel_spec = self.mel_spectrogram(waveform).squeeze(0)
+        full_mel = self.mel_spectrogram(full_waveform).squeeze(0)
 
         return {
             'waveform': waveform,
-            'mel_spec': mel_spec
+            'mel_spec': mel_spec,
+            'full_waveform': full_waveform,
+            'full_mel': full_mel
         }

@@ -95,8 +95,17 @@ class Trainer(BaseTrainer):
 
         # logging scheme might be different for different partitions
         if mode == "train":  # the method is called only every self.log_step steps
+            if 'full_mel' in batch:
+                full_mel = batch['full_mel'][0].unsqueeze(0).to(self.device)
+                with torch.no_grad():
+                    full_pred_wav = self.model.generator(full_mel)
+                self.writer.add_audio("predict_wav_full", full_pred_wav[0].cpu(), sample_rate=22050)
+
+            if 'full_waveform' in batch:
+                self.writer.add_audio("waveform_full", batch['full_waveform'][0].cpu(), sample_rate=22050)
+
             pred_wav = batch["wav_predict"][0].cpu()
-            self.writer.add_audio("predict_wav", pred_wav, sample_rate=22050)
+            self.writer.add_audio("predict_wav_part", pred_wav, sample_rate=22050)
             wav = batch["waveform"][0].cpu()
-            self.writer.add_audio("waveform", wav, sample_rate=22050)
+            self.writer.add_audio("waveform_part", wav, sample_rate=22050)
             # Log Stuff
