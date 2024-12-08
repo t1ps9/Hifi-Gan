@@ -8,7 +8,7 @@ git clone https://github.com/t1ps9/Hifi-Gan
 Move to folder
 
 ```bash
-cd dla_hw1_asr
+cd Hifi-Gan
 ```
 
 Create and activate env
@@ -28,20 +28,30 @@ pip install -r requirements.txt
 Dowload model weights
 
 ```bash
-python download_model_weights.py
+python3 download_model_weights.py
 ```
 
-Run inference
+Run inference with CustomDirDataset 
 
 ```bash
-python inference.py datasets.test.audio_dir='Path to wav'
+python3 synthesize.py datasets.test.audio_dir=<Path to folder>
 ```
 
-Calc wer and cer
+You can check the inference on 5 texts that were given here https://github.com/markovka17/dla/tree/2024/hw3_nv
 
 ```bash
-python calc_wer_and_cer.py --target_dir <Path to transcriptions (dir)>
+python3 synthesize.py datasets.test.audio_dir=test_tts
 ```
+
+Run inference with text query  
+
+```bash
+python3 synthesize.py inferencer.text_query="WRITE THE TEXT HERE"
+```
+Predict wavs is saved to the path specified during output:
+
+Saved...
+
 
 ## Credits
 
