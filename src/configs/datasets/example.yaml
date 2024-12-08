@@ -1,2 +1,5 @@
 train:
   _target_: src.datasets.LJSpeechDataset
+val:
+  _target_: src.datasets.CustomWavDataset
+  data_dir: ${hydra:runtime.cwd}/wav_test

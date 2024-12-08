@@ -1,13 +1,13 @@
 defaults:
-  - model: baseline
+  - model: hifi
   - metrics: example
-  - datasets: example_eval # we do not want to run inference on training data
-  - dataloader: example
-  - transforms: example
+  - datasets: inf # we do not want to run inference on training data
+  - dataloader: inf
   - _self_
 inferencer:
-  device_tensors: ["data_object", "labels"] # which tensors should be on device (ex. GPU)
+  device_tensors: ["waveform", "mel_spec"] # which tensors should be on device (ex. GPU)
   device: auto # device name or "auto"
-  save_path: "example" # any name here, can be a dataset name
+  save_path: "predict_wavs" # any name here, can be a dataset name
   seed: 1
-  from_pretrained: "saved/model_best.pth" # path to the pretrained model
+  from_pretrained: "to_download/model_best_hifi.pth" # path to the pretrained model
+  text_query: ""

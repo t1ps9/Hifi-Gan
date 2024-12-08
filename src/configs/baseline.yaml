@@ -27,9 +27,9 @@ loss_function:
   mel_lambda: 45
 
 trainer:
-  log_step: 100
-  n_epochs: 200
-  epoch_len: 1000
+  log_step: 2
+  n_epochs: 2
+  epoch_len: 5
   device_tensors: ["waveform", "mel_spec"] # which tensors should be on device (ex. GPU)
   resume_from: null # null or path to the checkpoint dir with *.pth and config.yaml
   device: auto # device name or "auto"
@@ -40,4 +40,4 @@ trainer:
   save_dir: "saved"
   seed: 1
   max_grad_norm: 10
-  from_pretrained: null
+  from_pretrained: "to_download/model_best_hifi.pth"

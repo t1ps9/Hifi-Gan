@@ -249,9 +249,9 @@ class BaseTrainer:
         logs = last_train_metrics
 
         # Run val/test
-        # for part, dataloader in self.evaluation_dataloaders.items():
-        #     val_logs = self._evaluation_epoch(epoch, part, dataloader)
-        #     logs.update(**{f"{part}_{name}": value for name, value in val_logs.items()})
+        for part, dataloader in self.evaluation_dataloaders.items():
+            val_logs = self._evaluation_epoch(epoch, part, dataloader)
+            logs.update(**{f"{part}_{name}": value for name, value in val_logs.items()})
 
         return logs
 
@@ -280,13 +280,18 @@ class BaseTrainer:
                     batch,
                     metrics=self.evaluation_metrics,
                 )
+                self._log_batch(
+                    batch_idx, batch, part
+                )  # log only the last batch during inference
             self.writer.set_step(epoch * self.epoch_len, part)
             self._log_scalars(self.evaluation_metrics)
-            self._log_batch(
-                batch_idx, batch, part
-            )  # log only the last batch during inference
 
-        return self.evaluation_metrics.result() if self.evaluation_metrics is not None else None
+        if self.evaluation_metrics is not None:
+            self.writer.set_step(epoch * self.epoch_len, part)
+            self._log_scalars(self.evaluation_metrics)
+            return self.evaluation_metrics.result()
+        else:
+            return {}
 
     def _monitor_performance(self, logs, not_improved_count):
         """
@@ -466,6 +471,8 @@ class BaseTrainer:
         Args:
             metric_tracker (MetricTracker): calculated metrics.
         """
+        if metric_tracker is None:
+            return
         if self.writer is None:
             return
         for metric_name in metric_tracker.keys():

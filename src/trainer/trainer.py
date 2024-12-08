@@ -34,47 +34,47 @@ class Trainer(BaseTrainer):
             real_msd_logits=msd_real_out, fake_msd_logits=msd_fake_out,
             real_mpd_logits=mpd_real_out, fake_mpd_logits=mpd_fake_out
         )
-
-        self.optimizer_disc.zero_grad()
-        disc_loss_dict["disc_loss"].backward()
-        self._clip_grad_norm_block(self.model.mpd)
-        self._clip_grad_norm_block(self.model.msd)
-        self.optimizer_disc.step()
+        if self.is_train:
+            self.optimizer_disc.zero_grad()
+            disc_loss_dict["disc_loss"].backward()
+            self._clip_grad_norm_block(self.model.mpd)
+            self._clip_grad_norm_block(self.model.msd)
+            self.optimizer_disc.step()
         batch.update(disc_loss_dict)
+        if self.is_train:
+            gen_waveform = self.model.generator(ref_mel)
+            batch["wav_predict"] = gen_waveform
 
-        gen_waveform = self.model.generator(ref_mel)
-        batch["wav_predict"] = gen_waveform
+            mpd_real_out, mpd_real_feats = self.model.mpd(ref_waveform)
+            mpd_fake_out, mpd_fake_feats = self.model.mpd(gen_waveform)
+            msd_real_out, msd_real_feats = self.model.msd(ref_waveform)
+            msd_fake_out, msd_fake_feats = self.model.msd(gen_waveform)
 
-        mpd_real_out, mpd_real_feats = self.model.mpd(ref_waveform)
-        mpd_fake_out, mpd_fake_feats = self.model.mpd(gen_waveform)
-        msd_real_out, msd_real_feats = self.model.msd(ref_waveform)
-        msd_fake_out, msd_fake_feats = self.model.msd(gen_waveform)
+            melspec = MelSpectrogram(MelSpectrogramConfig())
+            predict_mel = melspec(gen_waveform).squeeze(1)
 
-        melspec = MelSpectrogram(MelSpectrogramConfig())
-        predict_mel = melspec(gen_waveform).squeeze(1)
+            gen_loss_dict = self.criterion.gen_loss_func(
+                fake_mels=predict_mel,
+                real_mels=ref_mel,
+                fake_msd_logits=msd_fake_out,
+                fake_mpd_logits=mpd_fake_out,
+                real_msd_activations=msd_real_feats,
+                fake_msd_activations=msd_fake_feats,
+                real_mpd_activations=mpd_real_feats,
+                fake_mpd_activations=mpd_fake_feats
+            )
 
-        gen_loss_dict = self.criterion.gen_loss_func(
-            fake_mels=predict_mel,
-            real_mels=ref_mel,
-            fake_msd_logits=msd_fake_out,
-            fake_mpd_logits=mpd_fake_out,
-            real_msd_activations=msd_real_feats,
-            fake_msd_activations=msd_fake_feats,
-            real_mpd_activations=mpd_real_feats,
-            fake_mpd_activations=mpd_fake_feats
-        )
+            self.optimizer_gen.zero_grad()
+            gen_loss_dict["gen_loss"].backward()
+            self._clip_grad_norm_block(self.model.generator)
+            self.optimizer_gen.step()
 
-        self.optimizer_gen.zero_grad()
-        gen_loss_dict["gen_loss"].backward()
-        self._clip_grad_norm_block(self.model.generator)
-        self.optimizer_gen.step()
+            batch.update(gen_loss_dict)
 
-        batch.update(gen_loss_dict)
-
-        for key_name in self.config.writer.loss_names:
-            val = batch.get(key_name)
-            if val is not None and torch.is_tensor(val):
-                metrics.update(key_name, val.item())
+        # for key_name in self.config.writer.loss_names:
+        #     val = batch.get(key_name)
+        #     if val is not None and torch.is_tensor(val):
+        #         metrics.update(key_name, val.item())
 
         return batch
 
@@ -95,17 +95,31 @@ class Trainer(BaseTrainer):
 
         # logging scheme might be different for different partitions
         if mode == "train":  # the method is called only every self.log_step steps
+            # if 'full_mel' in batch:
+            #     full_mel = batch['full_mel'][0].unsqueeze(0).to(self.device)
+            #     with torch.no_grad():
+            #         full_pred_wav = self.model.generator(full_mel)
+            #     self.writer.add_audio("predict_wav_full", full_pred_wav[0].cpu(), sample_rate=22050)
+
+            # if 'full_waveform' in batch:
+            #     self.writer.add_audio("waveform_full", batch['full_waveform'][0].cpu(), sample_rate=22050)
+
+            # pred_wav = batch["wav_predict"][0].cpu()
+            # self.writer.add_audio("predict_wav_part", pred_wav, sample_rate=22050)
+            # wav = batch["waveform"][0].cpu()
+            # self.writer.add_audio("waveform_part", wav, sample_rate=22050)
+            # Log Stuff
+            pass
+        else:
             if 'full_mel' in batch:
-                full_mel = batch['full_mel'][0].unsqueeze(0).to(self.device)
+                full_mel = batch['full_mel']
+                # for i in range(full_mel.size(0)):
+                mel = full_mel[0].unsqueeze(0).to(self.device)
                 with torch.no_grad():
-                    full_pred_wav = self.model.generator(full_mel)
-                self.writer.add_audio("predict_wav_full", full_pred_wav[0].cpu(), sample_rate=22050)
+                    full_pred_wav = self.model.generator(mel)
+                self.writer.add_audio(f"predict_wav_full_{batch_idx}", full_pred_wav[0].cpu(), sample_rate=22050)
 
             if 'full_waveform' in batch:
-                self.writer.add_audio("waveform_full", batch['full_waveform'][0].cpu(), sample_rate=22050)
-
-            pred_wav = batch["wav_predict"][0].cpu()
-            self.writer.add_audio("predict_wav_part", pred_wav, sample_rate=22050)
-            wav = batch["waveform"][0].cpu()
-            self.writer.add_audio("waveform_part", wav, sample_rate=22050)
-            # Log Stuff
+                for i, waveform in enumerate(batch['full_waveform']):
+                    waveform = batch['full_waveform'][0].cpu()
+                    self.writer.add_audio(f"waveform_full_{batch_idx}", waveform[0], sample_rate=22050)
