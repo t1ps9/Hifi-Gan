@@ -3,6 +3,9 @@ torchvision==0.17.0
 torchaudio==2.2.0
 soundfile
 numpy==1.26.4
+gdown==5.2.0
+inflect==7.4.0
+wget==3.2
 torch_audiomentations
 tqdm
 matplotlib
