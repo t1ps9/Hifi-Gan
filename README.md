@@ -3,7 +3,7 @@
 Clone repository
 
 ```bash
-git clone https://github.com/t1ps9/dla_hw1_asr
+git clone https://github.com/t1ps9/Hifi-Gan
 ```
 Move to folder
 
